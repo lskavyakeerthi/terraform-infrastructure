@@ -3,6 +3,19 @@ pipeline {
         label 'terraform-worker'
     }
 
+    parameters {
+        string(
+            name: 'SSH_ALLOWED_CIDR',
+            defaultValue: '',
+            description: 'Your public IP with /32, for example 49.37.10.20/32'
+        )
+        string(
+            name: 'AWS_KEY_NAME',
+            defaultValue: 'aug-ubu-pem',
+            description: 'Existing EC2 key-pair name in ap-south-1'
+        )
+    }
+
     stages {
         stage('Checkout') {
             steps {
@@ -10,28 +23,58 @@ pipeline {
             }
         }
 
-        stage('Verify Tools') {
+        stage('Terraform Init') {
             steps {
-                sh '''
-                    echo "Running on:"
-                    hostname
-
-                    echo "Java version:"
-                    java -version
-
-                    echo "Git version:"
-                    git --version
-
-                    echo "Terraform version:"
-                    terraform version
-
-                    echo "AWS CLI version:"
-                    aws --version
-
-                    echo "AWS identity:"
-                    aws sts get-caller-identity
-                '''
+                dir('terraform') {
+                    sh 'terraform init'
+                }
             }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                dir('terraform') {
+                    sh 'terraform validate'
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                dir('terraform') {
+                    sh '''
+                        test -n "${SSH_ALLOWED_CIDR}" || {
+                            echo "SSH_ALLOWED_CIDR is required. Use Build with Parameters."
+                            exit 1
+                        }
+                        terraform plan \
+                            -var="ssh_allowed_cidr=${SSH_ALLOWED_CIDR}" \
+                            -var="key_name=${AWS_KEY_NAME}"
+                    '''
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                dir('terraform') {
+                    sh '''
+                        terraform apply -auto-approve \
+                            -var="ssh_allowed_cidr=${SSH_ALLOWED_CIDR}" \
+                            -var="key_name=${AWS_KEY_NAME}"
+                    '''
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo 'Terraform deployment completed successfully.'
+        }
+
+        failure {
+            echo 'Terraform deployment failed.'
         }
     }
 }
