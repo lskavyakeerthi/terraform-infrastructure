@@ -26,7 +26,7 @@ pipeline {
         stage('Terraform Init') {
             steps {
                 dir('terraform') {
-                    sh 'terraform init'
+                    sh 'terraform init -migrate-state -force-copy'
                 }
             }
         }
